@@ -1,0 +1,54 @@
+[project]
+name = "robotframework-live-trace"
+version = "0.1.0"
+description = "A live trace visualization for Robot Framework test runs."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Manuel Ketterer", email = "ps3udonym4@gmail.com" }]
+requires-python = ">=3.10"
+dependencies = ["dearpygui>=2.2", "robotframework>=7.0"]
+keywords = [
+    "robotframework",
+    "automation",
+    "testautomation",
+    "testing",
+    "debugging",
+    "visualization",
+    "trace",
+    "live",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: Robot Framework",
+    "Framework :: Robot Framework :: Tool",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Testing",
+    "Topic :: Software Development :: Debuggers",
+]
+
+[project.urls]
+Homepage = "https://github.com/iDentitY4/robotframework-live-trace"
+Repository = "https://github.com/iDentitY4/robotframework-live-trace.git"
+Issues = "https://github.com/iDentitY4/robotframework-live-trace/issues"
+
+[build-system]
+requires = ["uv_build>=0.10.4,<0.11.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "RobotLiveTrace"
+
+[dependency-groups]
+dev = ["pytest>=9.0.2", "ruff>=0.15.2", "ty>=0.0.18"]
+
+[tool.ty.rules]
+unused-type-ignore-comment = "ignore"
