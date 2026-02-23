@@ -1,6 +1,5 @@
 name: Publish to PyPI
 
-# This workflow only triggers when you create a new Release on GitHub
 on:
   release:
     types: [published]
@@ -9,6 +8,9 @@ jobs:
   build-and-publish:
     name: Build the package and publish it to pypi
     runs-on: ubuntu-latest
+
+    environment:
+      name: pypi
 
     # These permissions are required for Trusted Publishing (OIDC)
     permissions:
