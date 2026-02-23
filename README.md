@@ -1,16 +1,18 @@
 # Robotframework Live Trace
 
-A real-time, cross-platform execution visualization dashboard for Robot Framework.
+A real-time, cross-platform test execution visualization for Robot Framework powered by [DearPyGui](https://github.com/hoffstadt/DearPyGui).
 
-Built on top of [Dear PyGui](https://github.com/hoffstadt/DearPyGui) and the Robot Framework Listener API (v3), this tool runs a high-performance, hardware-accelerated GUI in a completely isolated process. It allows you to monitor deeply nested keyword call stacks, inspect live arguments, and trace failures exactly as they happen without blocking your test execution.
+> Nothing has such power to broaden the mind as the ability to investigate systematically and truly all that comes under thy observation. - Marcus Aurelius
+
+![Demo Screenshot of RobotLiveTrace GUI](/images/demo-1.png)
 
 ## Features
 
 * **Live Execution Tree**: Watch your Suites, Tests, and Keywords expand and collapse in real-time.
-* **Dedicated Error Feed**: A split-pane chronological feed of all `WARN`, `ERROR`, and `FAIL` logs. Click any error to instantly expand the tree and highlight the exact keyword that caused it.
-* **Interactive Tooltips**: Hover over any keyword to see its execution time, status, and input arguments.
+* **Error Feed**: A split-pane chronological feed of all `WARN`, `ERROR`, and `FAIL` logs. Click any error to instantly expand the tree and highlight the exact keyword that caused it.
+* **Tooltips**: Hover over any keyword to see its execution time, status, and input arguments.
 * **Execution Control**: Pause and resume the active Robot Framework test run directly from the GUI.
-* **Smart Filtering**: Instantly search massive execution trees by keyword name, argument, or log message.
+* **Search and Filtering**: Instantly search large execution trees by keyword name, argument, or log message.
 * **Process Isolated**: Runs in a separate `multiprocessing` process, dodging the Python GIL and ensuring your test timings are not affected by GUI rendering overhead.
 
 ## Requirements

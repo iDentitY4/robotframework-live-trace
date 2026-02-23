@@ -8,7 +8,14 @@ from RobotLiveTrace.message import Message
 
 
 class RobotLiveTrace:
-    """ """
+    """A Robot Framework listener that provides a real-time execution trace viewer.
+
+    Usage:
+        To use this listener, run your Robot Framework tests with the --listener
+        option:
+
+        `robot --listener RobotLiveTrace path/to/tests.robot`
+    """
 
     ROBOT_LISTENER_API_VERSION = 3
 
