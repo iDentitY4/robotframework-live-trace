@@ -1,4 +1,4 @@
-# Robotframework Live Trace
+# Robot Framework Live Trace
 
 A real-time, cross-platform test execution visualization for Robot Framework powered by [DearPyGui](https://github.com/hoffstadt/DearPyGui).
 
