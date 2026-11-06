@@ -1,3 +1,7 @@
+import sys
+from datetime import datetime
+from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -32,32 +36,75 @@ def test_listener_initialization(listener, mock_multiprocessing):
     listener.gui_process.start.assert_called_once()
 
 
-def test_listener_sends_start_suite(listener):
-    """Verify start_suite puts correct message on queue."""
-    data = MagicMock()
-    data.to_dict.return_value = {"name": "My Suite"}
-    result = MagicMock()
-    result.to_dict.return_value = {}
-
-    listener.start_suite(data, result)
-
+def sent_message(listener):
     listener.message_queue.put.assert_called_once()
-    msg = listener.message_queue.put.call_args[0][0]
-    assert msg["action"] == "start_suite"
-    assert msg["data"]["name"] == "My Suite"
+    return listener.message_queue.put.call_args[0][0]
+
+
+def test_listener_sends_start_suite(listener):
+    """Verify start_suite only sends the suite name."""
+    listener.start_suite(SimpleNamespace(name="My Suite"), MagicMock())
+
+    assert sent_message(listener) == {
+        "action": "start_suite",
+        "data": {"name": "My Suite"},
+        "result": None,
+    }
+
+
+def test_listener_converts_keyword_args_to_strings(listener):
+    """Verify non-string arguments reach the GUI as strings."""
+    data = SimpleNamespace(name="Log", args=("text", 42))
+
+    listener.start_library_keyword(data, MagicMock(), MagicMock())
+
+    assert sent_message(listener)["data"] == {"name": "Log", "args": ["text", "42"]}
+
+
+def test_listener_sends_end_status_and_elapsed_time(listener):
+    """Verify end events send the status and elapsed seconds."""
+    result = SimpleNamespace(status="FAIL", elapsed_time=timedelta(seconds=0.5))
+
+    listener.end_user_keyword(MagicMock(), MagicMock(), result)
+
+    assert sent_message(listener) == {
+        "action": "end_user_keyword",
+        "data": None,
+        "result": {"status": "FAIL", "elapsed_time": 0.5},
+    }
 
 
 def test_listener_sends_log_message(listener):
-    """Verify log_message puts correct message on queue."""
-    msg_obj = MagicMock()
-    msg_obj.to_dict.return_value = {"message": "Hello", "level": "INFO"}
+    """Verify log_message sends the level, text and timestamp."""
+    message = SimpleNamespace(
+        level="INFO", message="Hello", timestamp=datetime(2026, 1, 2, 3, 4, 5)
+    )
 
-    listener.log_message(msg_obj)
+    listener.log_message(message)
 
-    listener.message_queue.put.assert_called_once()
-    msg = listener.message_queue.put.call_args[0][0]
+    msg = sent_message(listener)
     assert msg["action"] == "log_message"
-    assert msg["result"]["message"] == "Hello"
+    assert msg["result"] == {
+        "level": "INFO",
+        "message": "Hello",
+        "timestamp": "2026-01-02T03:04:05",
+    }
+
+
+def test_listener_omits_missing_log_timestamp(listener):
+    """Verify a message without a timestamp leaves the GUI's default in place."""
+    listener.log_message(SimpleNamespace(level="INFO", message="Hello", timestamp=None))
+
+    assert "timestamp" not in sent_message(listener)["result"]
+
+
+def test_listener_explains_dearpygui_import_failure(mock_multiprocessing):
+    """Verify a Dear PyGui import failure tells the user how to fix it."""
+    with patch.dict(sys.modules, {"RobotLiveTrace.gui": None}):
+        with pytest.raises(ImportError, match="dearpygui==2.0.0"):
+            RobotLiveTrace()
+
+    mock_multiprocessing.Process.assert_not_called()
 
 
 def test_listener_pauses_execution(listener):

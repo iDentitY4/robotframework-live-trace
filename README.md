@@ -19,7 +19,7 @@ A real-time, cross-platform test execution visualization for Robot Framework pow
 
 * Python 3.10+
 * Robot Framework >= 7.0 *(Requires the V3 Listener API)*
-* Dear PyGui >= 2.2
+* Dear PyGui >= 2.0
 
 ## Installation
 
@@ -34,6 +34,14 @@ or using pip:
 ```bash
 pip install robotframework-live-trace
 
+```
+
+### RHEL, Rocky and AlmaLinux 9
+
+Dear PyGui 2.1 and newer need a newer `libstdc++` than these systems ship, so importing them fails with an error like ``version `GLIBCXX_3.4.30' not found``. Install Dear PyGui 2.0.0 instead (available for Python 3.13 and older):
+
+```bash
+pip install robotframework-live-trace "dearpygui==2.0.0"
 ```
 
 ## Usage
