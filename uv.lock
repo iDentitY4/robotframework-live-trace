@@ -110,7 +110,7 @@ wheels = [
 
 [[package]]
 name = "robotframework-live-trace"
-version = "0.0.1a1"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "dearpygui" },
@@ -126,7 +126,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dearpygui", specifier = ">=2.2" },
+    { name = "dearpygui", specifier = ">=2.0" },
     { name = "robotframework", specifier = ">=7.0" },
 ]
 

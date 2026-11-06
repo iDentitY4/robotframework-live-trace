@@ -405,6 +405,18 @@ class GUI:
         dpg.set_value(node["status_id"], f"Status: {status}")
         dpg.set_value(node["time_id"], f"Elapsed Time: {elapsed} s")
 
+    def handle_message(self, msg: Message) -> None:
+        action = msg.get("action", "unknown")
+        data = msg.get("data", None)
+        result = msg.get("result", None)
+
+        if action.startswith("start_") and data is not None:
+            self.handle_start(action, data=data)
+        elif action == "log_message" and result is not None:
+            self.handle_log(result)
+        elif action.startswith("end_") and result is not None:
+            self.handle_end(action, result)
+
     def run(self) -> None:
         dpg.create_context()
         dpg.create_viewport(title="RobotLiveTrace", width=1400, height=800)
@@ -429,20 +441,7 @@ class GUI:
 
             try:
                 while True:
-                    msg: Message = self.message_queue.get_nowait()
-                    action = msg.get("action", "unknown")
-                    data = msg.get("data", None)
-                    result = msg.get("result", None)
-
-                    if action.startswith("start_") and data is not None:
-                        self.handle_start(
-                            action,
-                            data=data,
-                        )
-                    elif action == "log_message" and result is not None:
-                        self.handle_log(result)
-                    elif action.startswith("end_") and result is not None:
-                        self.handle_end(action, result)
+                    self.handle_message(self.message_queue.get_nowait())
             except queue.Empty:
                 pass
 
