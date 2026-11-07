@@ -9,6 +9,20 @@ from robot.utils import safe_str  # type: ignore
 from RobotLiveTrace.message import Message
 
 
+# These only hold IF and TRY branches, so showing them would just add a tree level.
+_BRANCH_CONTAINERS = ("IF/ELSE ROOT", "TRY/EXCEPT ROOT")
+
+
+def _body_item_name(data: Any) -> str:
+    if data.type != "ITERATION":
+        return str(data)
+
+    # FOR iterations have assigned values, WHILE iterations have none
+    values = getattr(data, "assign", {})
+    assigned = ", ".join(f"{name} = {safe_str(v)}" for name, v in values.items())
+    return f"ITERATION    {assigned}".rstrip()
+
+
 def _load_run_gui() -> Callable[..., None]:
     """Import the GUI on demand so a broken Dear PyGui install gets a clear error."""
     try:
@@ -42,9 +56,12 @@ class RobotLiveTrace:
         self.message_queue = multiprocessing.Queue()
         self.pause_event = multiprocessing.Event()
         self.pause_event.set()
+        self.pause_on_failure_event = multiprocessing.Event()
+        self.last_failure_id = ""
 
         self.gui_process = multiprocessing.Process(
-            target=run_gui, args=(self.message_queue, self.pause_event)
+            target=run_gui,
+            args=(self.message_queue, self.pause_event, self.pause_on_failure_event),
         )
         self.gui_process.start()
 
@@ -97,6 +114,25 @@ class RobotLiveTrace:
             },
         )
 
+    def _pause_if_failure_started_here(self, result: Any):
+        """Request a pause, which takes effect when the next event is sent.
+
+        A failure also ends every parent as failed. IDs are hierarchical, so an
+        item whose ID prefixes the previous failure's ID is only passing it on.
+        """
+        if result.status != "FAIL":
+            return
+
+        passed_on = self.last_failure_id.startswith(f"{result.id}-")
+        self.last_failure_id = result.id
+
+        if not passed_on and self.pause_on_failure_event.is_set():
+            self.pause_event.clear()
+
+    def _send_keyword_end(self, action: str, result: Any):
+        self._send_end(action, result)
+        self._pause_if_failure_started_here(result)
+
     def start_suite(self, data: ModelObject, result: ModelObject):
         self._send_start("start_suite", data)
 
@@ -123,7 +159,7 @@ class RobotLiveTrace:
         implementation: ModelObject,
         result: ModelObject,
     ):
-        self._send_end("end_user_keyword", result)
+        self._send_keyword_end("end_user_keyword", result)
 
     def start_library_keyword(
         self,
@@ -139,7 +175,34 @@ class RobotLiveTrace:
         implementation: ModelObject,
         result: ModelObject,
     ):
-        self._send_end("end_library_keyword", result)
+        self._send_keyword_end("end_library_keyword", result)
+
+    def start_invalid_keyword(
+        self,
+        data: ModelObject,
+        implementation: ModelObject,
+        result: ModelObject,
+    ):
+        self._send_start("start_invalid_keyword", data)
+
+    def end_invalid_keyword(
+        self,
+        data: ModelObject,
+        implementation: ModelObject,
+        result: ModelObject,
+    ):
+        self._send_keyword_end("end_invalid_keyword", result)
+
+    def start_body_item(self, data: Any, result: ModelObject):
+        """Called for everything without its own method, such as FOR and IF."""
+        if data.type not in _BRANCH_CONTAINERS:
+            self._wait_and_send(
+                f"start_{data.type.lower()}", data={"name": _body_item_name(data)}
+            )
+
+    def end_body_item(self, data: Any, result: Any):
+        if data.type not in _BRANCH_CONTAINERS:
+            self._send_keyword_end(f"end_{data.type.lower()}", result)
 
     def log_message(self, message: Any):
         result = {"level": message.level, "message": message.message}

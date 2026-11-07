@@ -1,11 +1,13 @@
 import sys
 from datetime import datetime
 from datetime import timedelta
+from importlib.metadata import version
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+import RobotLiveTrace as RobotLiveTraceModule
 from RobotLiveTrace.listener import RobotLiveTrace
 
 
@@ -17,8 +19,7 @@ def mock_multiprocessing():
         mock_process_inst.is_alive.return_value = True
 
         # Setup the mock event to be set (not paused) by default
-        mock_event_inst = mock_mp.Event.return_value
-        mock_event_inst.is_set.return_value = True
+        mock_mp.Event.side_effect = lambda: MagicMock(**{"is_set.return_value": True})
 
         yield mock_mp
 
@@ -28,12 +29,22 @@ def listener(mock_multiprocessing):
     return RobotLiveTrace()
 
 
+def test_package_exposes_version():
+    assert RobotLiveTraceModule.__version__ == version("robotframework-live-trace")
+
+
 def test_listener_initialization(listener, mock_multiprocessing):
     """Verify listener starts the GUI process and sets up queues."""
     mock_multiprocessing.Queue.assert_called_once()
-    mock_multiprocessing.Event.assert_called_once()
+    assert mock_multiprocessing.Event.call_count == 2
     mock_multiprocessing.Process.assert_called_once()
     listener.gui_process.start.assert_called_once()
+
+
+def make_result(status, id="s1-t1-k1", elapsed=0.0):
+    return SimpleNamespace(
+        status=status, id=id, elapsed_time=timedelta(seconds=elapsed)
+    )
 
 
 def sent_message(listener):
@@ -63,7 +74,7 @@ def test_listener_converts_keyword_args_to_strings(listener):
 
 def test_listener_sends_end_status_and_elapsed_time(listener):
     """Verify end events send the status and elapsed seconds."""
-    result = SimpleNamespace(status="FAIL", elapsed_time=timedelta(seconds=0.5))
+    result = make_result("FAIL", elapsed=0.5)
 
     listener.end_user_keyword(MagicMock(), MagicMock(), result)
 
@@ -72,6 +83,98 @@ def test_listener_sends_end_status_and_elapsed_time(listener):
         "data": None,
         "result": {"status": "FAIL", "elapsed_time": 0.5},
     }
+
+
+def test_listener_sends_invalid_keyword(listener):
+    """Verify keywords that can't be found are sent to the GUI."""
+    data = SimpleNamespace(name="Missing")
+
+    listener.start_invalid_keyword(data, MagicMock(), MagicMock())
+
+    assert sent_message(listener)["action"] == "start_invalid_keyword"
+
+
+@pytest.mark.parametrize(
+    ("data", "action", "name"),
+    [
+        (
+            SimpleNamespace(type="ITERATION", assign={"${i}": 1, "${j}": 2}),
+            "start_iteration",
+            "ITERATION    ${i} = 1, ${j} = 2",
+        ),
+        (SimpleNamespace(type="ITERATION"), "start_iteration", "ITERATION"),
+    ],
+)
+def test_listener_names_iterations(listener, data, action, name):
+    """Verify iterations are labelled with their values, if they have any."""
+    listener.start_body_item(data, MagicMock())
+
+    assert sent_message(listener)["action"] == action
+    assert sent_message(listener)["data"] == {"name": name}
+
+
+@pytest.mark.parametrize("item_type", ["IF/ELSE ROOT", "TRY/EXCEPT ROOT"])
+def test_listener_skips_branch_containers(listener, item_type):
+    """Verify IF and TRY roots aren't sent, only their branches."""
+    data = SimpleNamespace(type=item_type)
+
+    listener.start_body_item(data, MagicMock())
+    listener.end_body_item(data, make_result("PASS"))
+
+    listener.message_queue.put.assert_not_called()
+
+
+def end_keyword(listener, result):
+    listener.end_library_keyword(MagicMock(), MagicMock(), result)
+
+
+def test_pause_on_failure_is_off_by_default(listener):
+    listener.pause_on_failure_event.is_set.return_value = False
+
+    end_keyword(listener, make_result("FAIL"))
+
+    listener.pause_event.clear.assert_not_called()
+
+
+def test_pause_on_failure_pauses_after_sending_the_failure(listener):
+    """Verify the GUI can show the failure that caused the pause."""
+    calls = MagicMock()
+    calls.attach_mock(listener.message_queue.put, "put")
+    calls.attach_mock(listener.pause_event.clear, "clear")
+
+    end_keyword(listener, make_result("FAIL"))
+
+    assert [name for name, _, _ in calls.mock_calls] == ["put", "clear"]
+
+
+def test_pause_on_failure_ignores_passing_keywords(listener):
+    end_keyword(listener, make_result("PASS"))
+
+    listener.pause_event.clear.assert_not_called()
+
+
+def test_pause_on_failure_pauses_once_as_failure_reaches_parents(listener):
+    end_keyword(listener, make_result("FAIL", id="s1-t1-k1-k1-k2"))
+    end_keyword(listener, make_result("FAIL", id="s1-t1-k1-k1"))
+    end_keyword(listener, make_result("FAIL", id="s1-t1-k1"))
+
+    listener.pause_event.clear.assert_called_once()
+
+
+def test_pause_on_failure_pauses_again_for_a_new_failure(listener):
+    end_keyword(listener, make_result("FAIL", id="s1-t1-k1"))
+    end_keyword(listener, make_result("FAIL", id="s1-t1-k2"))
+    end_keyword(listener, make_result("FAIL", id="s1-t1-k10"))
+
+    assert listener.pause_event.clear.call_count == 3
+
+
+def test_pause_on_failure_ignores_test_and_suite_ends(listener):
+    """Verify a test or suite that failed without a failing keyword doesn't pause."""
+    listener.end_test(MagicMock(), make_result("FAIL"))
+    listener.end_suite(MagicMock(), make_result("FAIL"))
+
+    listener.pause_event.clear.assert_not_called()
 
 
 def test_listener_sends_log_message(listener):

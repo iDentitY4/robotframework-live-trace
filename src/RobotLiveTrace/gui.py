@@ -20,12 +20,25 @@ class FontSize(enum.IntEnum):
         return f"{self.name.title()} ({self.value}px)"
 
 
+STATUS_THEMES = {"PASS": "pass", "NOT RUN": "not_run", "SKIP": "log_warn"}
+
+
+def preview(text: str) -> str:
+    """Shorten text to one line so it doesn't break the UI layout."""
+    single_line = text.replace("\n", " ")
+    return single_line if len(single_line) < 80 else single_line[:77] + "..."
+
+
 class GUI:
     def __init__(
-        self, message_queue: queue.Queue[Message], pause_event: Event | None = None
+        self,
+        message_queue: queue.Queue[Message],
+        pause_event: Event | None = None,
+        pause_on_failure_event: Event | None = None,
     ) -> None:
         self.message_queue = message_queue
         self.pause_event = pause_event
+        self.pause_on_failure_event = pause_on_failure_event
 
         self.all_nodes: list[int | str] = []
         self.node_parents: dict[int | str, Any] = {}
@@ -46,6 +59,7 @@ class GUI:
             "start_test": "[TEST]",
             "start_user_keyword": "[USER-KW]",
             "start_library_keyword": "[LIB-KW]",
+            "start_invalid_keyword": "[INVALID-KW]",
         }
 
     def setup_icons(self) -> None:
@@ -87,6 +101,11 @@ class GUI:
         with dpg.theme() as self.themes["log_info"]:
             with dpg.theme_component(dpg.mvTreeNode):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, (180, 180, 180, 255))
+
+        with dpg.theme() as self.themes["not_run"]:
+            with dpg.theme_component(dpg.mvTreeNode):
+                # Dim gray text for keywords and branches that didn't run
+                dpg.add_theme_color(dpg.mvThemeCol_Text, (120, 120, 120, 255))
 
         with dpg.theme() as self.themes["highlight"]:
             with dpg.theme_component(dpg.mvAll):
@@ -130,7 +149,16 @@ class GUI:
                     )
 
             with dpg.group(horizontal=True):
-                dpg.add_checkbox(label="Pause Execution", callback=self.toggle_pause)
+                dpg.add_checkbox(
+                    label="Pause Execution",
+                    tag="pause_toggle",
+                    callback=self.toggle_pause,
+                )
+                dpg.add_text(" | ")
+                dpg.add_checkbox(
+                    label="Pause on Failure",
+                    callback=self.toggle_pause_on_failure,
+                )
                 dpg.add_text(" | ")
                 dpg.add_checkbox(
                     label="Auto-Scroll", tag="auto_scroll_toggle", default_value=True
@@ -196,6 +224,20 @@ class GUI:
             self.pause_event.clear()  # Block the listener process
         else:
             self.pause_event.set()  # Resume the listener process
+
+    def toggle_pause_on_failure(self, sender: int, app_data: Any):
+        if self.pause_on_failure_event is None:
+            return
+
+        if app_data:
+            self.pause_on_failure_event.set()
+        else:
+            self.pause_on_failure_event.clear()
+
+    def sync_pause_toggle(self) -> None:
+        # The listener can pause on its own when a failure happens
+        if self.pause_event is not None:
+            dpg.set_value("pause_toggle", not self.pause_event.is_set())
 
     def expand_all(self, sender: int, app_data: Any):
         for node_id in self.all_nodes:
@@ -279,9 +321,9 @@ class GUI:
         name = data.get("name", "Unknown")
         args = data.get("args", [])
 
-        prefix = self.prefixes.get(action, "[*]")
+        prefix = self.prefixes.get(action, "")
         parent_id = self.active_stack[-1]
-        base_label = f"{prefix} {name}"
+        base_label = preview(f"{prefix} {name}".strip())
 
         node_id = dpg.add_tree_node(
             label=base_label, parent=parent_id, default_open=True
@@ -299,7 +341,7 @@ class GUI:
             dpg.add_text(
                 f"Type: {action.replace('start_', '').replace('_', ' ').title()}"
             )
-            dpg.add_text(f"Name: {name}")
+            dpg.add_text(f"Name: {name}", wrap=600)
 
             if args:
                 dpg.add_text(f"Args: {', '.join(args)}")
@@ -326,13 +368,10 @@ class GUI:
         full_txt = result.get("message", "<MISSING LOG MESSAGE>")
         timestamp = result.get("timestamp", "<NO TIMESTAMP>")
 
-        # Truncate text for the tree label so it doesn't break the UI layout
-        # Replace newlines with spaces for a cleaner single-line preview
         clean_txt = full_txt.replace("\n", " ")
-        display_txt = clean_txt if len(clean_txt) < 80 else clean_txt[:77] + "..."
 
         node_id = dpg.add_tree_node(
-            label=f"[{level}] {display_txt}",
+            label=f"[{level}] {preview(full_txt)}",
             parent=parent_id,
             leaf=True,
         )
@@ -392,15 +431,12 @@ class GUI:
         status = result.get("status", "UNKNOWN")
         elapsed = result.get("elapsed_time", 0.0)
 
-        if status == "PASS":
-            dpg.bind_item_theme(node_id, self.themes["pass"])
-            self.node_themes[node_id] = self.themes["pass"]
+        theme = self.themes[STATUS_THEMES.get(status, "fail")]
+        dpg.bind_item_theme(node_id, theme)
+        self.node_themes[node_id] = theme
 
-            if dpg.get_value("auto_collapse_toggle"):
-                dpg.set_value(node_id, False)
-        else:
-            dpg.bind_item_theme(node_id, self.themes["fail"])
-            self.node_themes[node_id] = self.themes["fail"]
+        if status in ("PASS", "NOT RUN") and dpg.get_value("auto_collapse_toggle"):
+            dpg.set_value(node_id, False)
 
         dpg.set_value(node["status_id"], f"Status: {status}")
         dpg.set_value(node["time_id"], f"Elapsed Time: {elapsed} s")
@@ -445,6 +481,8 @@ class GUI:
             except queue.Empty:
                 pass
 
+            self.sync_pause_toggle()
+
             if self.needs_filter_update and dpg.get_value("filter_input"):
                 self.apply_filter()
 
@@ -460,8 +498,12 @@ class GUI:
         dpg.destroy_context()
 
 
-def run_gui(q: queue.Queue[Message], pause_event: Event | None = None):
-    gui = GUI(q, pause_event)
+def run_gui(
+    q: queue.Queue[Message],
+    pause_event: Event | None = None,
+    pause_on_failure_event: Event | None = None,
+):
+    gui = GUI(q, pause_event, pause_on_failure_event)
     gui.run()
 
 

@@ -1,5 +1,5 @@
 import queue
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -24,6 +24,7 @@ def gui_instance(mock_dpg):
         "fail": 12,
         "log_warn": 13,
         "log_info": 14,
+        "not_run": 16,
         "highlight": 15,
     }
     return gui
@@ -95,6 +96,40 @@ def test_gui_handle_end_updates_status(gui_instance, mock_dpg):
     mock_dpg.bind_item_theme.assert_called_with(100, gui_instance.themes["pass"])
 
 
+@pytest.mark.parametrize(
+    ("status", "theme", "collapsed"),
+    [
+        ("PASS", "pass", True),
+        ("NOT RUN", "not_run", True),
+        ("SKIP", "log_warn", False),
+        ("FAIL", "fail", False),
+    ],
+)
+def test_gui_handle_end_styles_by_status(
+    gui_instance, mock_dpg, status, theme, collapsed
+):
+    """Verify each status gets its own color and only finished work collapses."""
+    gui_instance.active_stack = ["root", 100]
+    gui_instance.node_data[100] = {"label": "Item", "status_id": 200, "time_id": 201}
+    mock_dpg.does_item_exist.return_value = True
+    mock_dpg.get_value.return_value = True
+
+    gui_instance.handle_end("end_if", {"status": status, "elapsed_time": 0.1})
+
+    mock_dpg.bind_item_theme.assert_called_with(100, gui_instance.themes[theme])
+    assert (call(100, False) in mock_dpg.set_value.call_args_list) is collapsed
+
+
+def test_gui_handle_start_labels_control_structures(gui_instance, mock_dpg):
+    """Verify control structures have no prefix and long labels are shortened."""
+    gui_instance.handle_start("start_for", {"name": "FOR    ${i}    IN    a"})
+    assert mock_dpg.add_tree_node.call_args[1]["label"] == "FOR    ${i}    IN    a"
+
+    gui_instance.handle_start("start_iteration", {"name": "x\n" + "y" * 100})
+    label = mock_dpg.add_tree_node.call_args[1]["label"]
+    assert label.startswith("x y") and label.endswith("...") and len(label) == 80
+
+
 def test_gui_apply_filter(gui_instance, mock_dpg):
     """Verify filter shows/hides items based on search text."""
     gui_instance.all_nodes = [1, 2, 3]
@@ -121,6 +156,28 @@ def test_gui_toggle_pause(gui_instance):
     # Resume (checkbox=False) -> set event
     gui_instance.toggle_pause(None, False)
     gui_instance.pause_event.set.assert_called_once()
+
+
+def test_gui_toggle_pause_on_failure(mock_dpg):
+    """Verify the checkbox controls the event the listener reads."""
+    event = MagicMock()
+    gui = GUI(queue.Queue(), MagicMock(), event)
+
+    gui.toggle_pause_on_failure(0, True)
+    event.set.assert_called_once()
+
+    gui.toggle_pause_on_failure(0, False)
+    event.clear.assert_called_once()
+
+
+@pytest.mark.parametrize("running", [True, False])
+def test_gui_pause_toggle_follows_listener(gui_instance, mock_dpg, running):
+    """Verify the checkbox shows a pause that the listener started."""
+    gui_instance.pause_event.is_set.return_value = running
+
+    gui_instance.sync_pause_toggle()
+
+    mock_dpg.set_value.assert_called_once_with("pause_toggle", not running)
 
 
 def test_gui_expand_collapse_all(gui_instance, mock_dpg):
